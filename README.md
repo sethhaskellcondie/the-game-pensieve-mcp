@@ -5,13 +5,8 @@ proxy**: a separate TypeScript process that exposes MCP tools over **Streamable 
 them by calling the existing REST API over HTTP. AI hosts (Claude Desktop, Claude Code, claude.ai
 connectors) connect to it to answer natural-language questions about a game collection.
 
-The API it proxies lives in a separate repo, **the-game-pensieve-api**; references below to
+The API it proxies lives in a separate repo, **the-game-pensieve-api**; the references below to
 `compose.yaml`, `Caddyfile`, `keycloak/`, and the realm import all point into that repo.
-
-Status: **complete** (Phases 1–7 of the MCP rollout plan) — scaffold + transport, the
-read-only tool surface, OAuth enforcement (the sidecar is an OAuth 2.0 Protected Resource), and the
-backend is now an OAuth 2.0 **resource server** (Keycloak RS256), so a forwarded token is validated
-end-to-end and every read is owner-scoped by the backend's Row-Level Security.
 
 ## OAuth
 
@@ -37,7 +32,7 @@ probe. If the backend is still unreachable after the retries **and** OAuth is co
 **fails closed** (enforces) rather than serving `/mcp` tokenless.
 
 `iss` is validated against the canonical, host-facing issuer, while keys are fetched from
-`MCP_OAUTH_JWKS_URI` — the internal `keycloak:8080` URL on the compose network (in prod both are the
+`MCP_OAUTH_JWKS_URI` — the internal `keycloak:8080` URL on the docker-compose network (in prod both are the
 public `https://…` URLs). `/healthz` and the metadata endpoints stay public.
 
 ## Tools
@@ -71,6 +66,9 @@ everything.
 
 ## Develop
 
+Requires **Node 20+**. All configuration is via environment variables — see the table above and the
+annotated `.env.example`.
+
 ```bash
 npm install
 npm run dev        # tsx watch, reads .env-style vars from the environment
@@ -80,6 +78,9 @@ npm run build && npm start
 ```
 
 On startup the server probes `GET /v1/heartbeat` and logs the backend's `secureMode`.
+
+For architecture, request flow, testing patterns, and how to add a tool, see
+[documentation/DevDocumentation.md](documentation/DevDocumentation.md).
 
 ## Connect a host
 
@@ -110,13 +111,13 @@ authorization server from the sidecar's protected-resource metadata and runs the
   Keycloak is more reliable than anonymous DCR — see `keycloak/README.md` in the API repo.)
 - **MCP Inspector** — point it at the `/mcp` URL; it will prompt for the OAuth flow.
 
-Every tool call is owner-scoped by the backend: a lapsed/guest caller gets the same `402`/`403`
+The backend owner-scopes every tool call: a lapsed/guest caller gets the same `402`/`403`
 capability responses (surfaced as MCP `isError` results) it would from the REST API — MCP reads
 inherit the exact same authorization as the web app (RLS + the capability matrix), never more.
 
 ## Docker / Compose
 
-The compose stack lives in the **API repo**, which consumes this sidecar as a published image
+The docker-compose stack lives in the **API repo**, which consumes this sidecar as a published image
 (`sethcondie/the-game-pensieve-mcp:latest`) — the same way it consumes the front end. Build and push
 from this repo:
 
