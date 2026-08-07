@@ -40,12 +40,12 @@ const SEARCH_TOOLS: { name: string; key: EntityKey; noun: string }[] = [
   { name: "search_systems", key: "system", noun: "game systems / consoles" },
   { name: "search_toys", key: "toy", noun: "toys" },
   { name: "search_video_games", key: "videoGame", noun: "video games" },
-  { name: "search_video_game_boxes", key: "videoGameBox", noun: "video game boxes (physical or collection releases that hold video games)" },
+  { name: "search_video_game_boxes", key: "videoGameBox", noun: "video game boxes (physical or digital, collections or stand-alone releases that hold video games)" },
   { name: "search_board_games", key: "boardGame", noun: "board games" },
   { name: "search_board_game_boxes", key: "boardGameBox", noun: "board game boxes (including expansions and stand-alone boxes)" },
 ];
 
-/** Register the full read-only tool surface (Phase 2) on the given server. */
+/** Register the full read-only tool surface on the given server. */
 export function registerTools(server: McpServer, api: PensieveApi): void {
   for (const tool of SEARCH_TOOLS) {
     server.registerTool(
