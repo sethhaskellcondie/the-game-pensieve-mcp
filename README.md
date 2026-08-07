@@ -91,10 +91,27 @@ surface is open:
 
 ```bash
 API_BASE_URL=http://localhost:8080/v1 PORT=8090 npm start
-npx @modelcontextprotocol/inspector             # point it at http://localhost:8090/mcp
+npm run inspect                                 # MCP Inspector — point it at http://localhost:8090/mcp
 # or register with a host (no token needed):
 claude mcp add --transport http pensieve http://localhost:8090/mcp
 ```
+
+### MCP Inspector
+
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector) is the official debugging GUI for
+MCP servers, installed here as a dev dependency (`npm run inspect`). It connects as a host would —
+but with you driving instead of a model — which makes it the quickest way to see how the sidecar is
+put together:
+
+- **Tool discovery** — the full tool list with names, descriptions, and Zod-derived input schemas,
+  exactly as a host's model sees them.
+- **Manual calls** — invoke any tool from a form and inspect the result, including `isError`
+  responses (e.g. the `402`/`403` capability responses surfaced from the backend).
+- **Raw wire traffic** — every JSON-RPC request/response over the Streamable HTTP transport,
+  useful when debugging the handshake or a host integration.
+
+Select transport **Streamable HTTP**, URL `http://localhost:8090/mcp`. Against a secured backend it
+prompts for the OAuth flow.
 
 ### Secured (OAuth 2.1)
 
@@ -133,7 +150,7 @@ docker compose up -d backend mcp
 # MCP endpoint: http://localhost:8090/mcp
 ```
 
-To iterate locally without a rebuild each time, run `npm run dev` on the host against the compose
+To iterate locally without a rebuild each time, run `npm run dev` on the host against the docker-compose
 backend (`API_BASE_URL=http://localhost:8080/v1 PORT=8090`) instead of the `mcp` service.
 
 In production (`compose.production.yaml` in the API repo) the sidecar has **no public ports** — Caddy
@@ -142,5 +159,5 @@ with the public issuer/audience URLs. See that repo's `Caddyfile` + `.env.produc
 
 ## Transport notes
 
-Streamable HTTP, **stateless**: each `POST /mcp` spins up a fresh server + transport. `GET`/`DELETE`
+Streamable HTTP, **stateless**: each `POST /mcp` spins up a fresh server and transport. `GET`/`DELETE`
 on `/mcp` return `405` (no server-initiated streams or sessions). `GET /healthz` is a liveness probe.

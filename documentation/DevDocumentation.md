@@ -148,8 +148,8 @@ docker compose up -d backend
 # In this repo: run the sidecar on the host against the compose backend
 API_BASE_URL=http://localhost:8080/v1 PORT=8090 npm run dev
 
-# Poke it
-npx @modelcontextprotocol/inspector    # point at http://localhost:8090/mcp
+# Poke it — MCP Inspector is a dev dependency; see "MCP Inspector" in the README
+npm run inspect                        # point at http://localhost:8090/mcp
 ```
 
 To exercise the OAuth path locally, run the backend's `secured` profile and set the
