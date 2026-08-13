@@ -165,7 +165,7 @@ the image and use the `mcp` service from the API repo — see "Docker / Compose"
 | Concern | Where |
 |---|---|
 | REST API, RLS, capability matrix, heartbeat/`secureMode` | `the-game-pensieve-api` repo |
-| Compose stacks (`compose.yaml`, `compose.production.yaml`), Caddy, TLS | API repo |
+| Compose stacks (`dockerCompose/`), Caddy, TLS | API repo |
 | Keycloak realm import, client registration guidance | API repo, `keycloak/` |
 | Front end | `the-game-pensieve-web-v2` repo |
 | This sidecar's published image | `sethcondie/the-game-pensieve-mcp:latest` |

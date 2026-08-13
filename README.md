@@ -6,8 +6,8 @@ them by calling the existing REST API over HTTP. AI hosts (Claude Desktop, Claud
 connectors) connect to it to answer natural-language questions about a game collection.
 
 The API it proxies lives in a separate repo, **the-game-pensieve-api**; the references below to the
-compose files (`compose.unsecured.yaml` / `compose.secured.yaml` for development,
-`compose.production.yaml` for production), `Caddyfile`, `keycloak/`, and the realm import all point
+compose files (`dockerCompose/compose.unsecured.yaml` / `dockerCompose/compose.secured.yaml` for development,
+`dockerCompose/compose.production.yaml` for production), `Caddyfile`, `keycloak/`, and the realm import all point
 into that repo.
 
 ## OAuth
@@ -148,18 +148,18 @@ docker build -t sethcondie/the-game-pensieve-mcp:latest .
 Then, from the API repo:
 
 ```bash
-docker compose -f compose.unsecured.yaml up -d backend mcp
+docker compose -f dockerCompose/compose.unsecured.yaml up -d backend mcp
 # MCP endpoint: http://localhost:8090/mcp
-# Use -f compose.secured.yaml instead to develop against a backend that requires tokens; the
+# Use -f dockerCompose/compose.secured.yaml instead to develop against a backend that requires tokens; the
 # sidecar's auto mode reads the backend heartbeat and starts enforcing OAuth on its own.
 ```
 
 To iterate locally without a rebuild each time, run `npm run dev` on the host against the docker-compose
 backend (`API_BASE_URL=http://localhost:8080/v1 PORT=8090`) instead of the `mcp` service.
 
-In production (`compose.production.yaml` in the API repo) the sidecar has **no public ports** — Caddy
+In production (`dockerCompose/compose.production.yaml` in the API repo) the sidecar has **no public ports** — Caddy
 fronts it at `https://<MCP_DOMAIN>/mcp` and terminates TLS. There it runs `MCP_AUTH_MODE=required`
-with the public issuer/audience URLs. See that repo's `Caddyfile` + `.env.production.example`.
+with the public issuer/audience URLs. See that repo's `Caddyfile` + `dockerCompose/.env.production.example`.
 
 ## Transport notes
 
