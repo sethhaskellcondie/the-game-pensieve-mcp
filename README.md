@@ -12,8 +12,9 @@ into that repo.
 
 ## OAuth
 
-When enforcing, the sidecar validates the incoming `Authorization: Bearer` JWT (signature via JWKS,
-`iss`, `aud`) with [`jose`](https://github.com/panva/jose), publishes **Protected Resource Metadata**
+When enforcing, the sidecar validates the incoming `Authorization: Bearer` JWT (signature via JWKS —
+`RS256` only, pinned explicitly — plus `iss`, `aud`, and the required **scopes**) with
+[`jose`](https://github.com/panva/jose), publishes **Protected Resource Metadata**
 (RFC 9728) at `/.well-known/oauth-protected-resource[/mcp]`, and challenges missing/invalid tokens
 with `401 + WWW-Authenticate: Bearer resource_metadata="…"`. Valid tokens are forwarded to the API,
 which independently validates them and scopes the request to the token owner (Keycloak `sub` → owner
@@ -36,6 +37,29 @@ probe. If the backend is still unreachable after the retries **and** OAuth is co
 `iss` is validated against the canonical, host-facing issuer, while keys are fetched from
 `MCP_OAUTH_JWKS_URI` — the internal `keycloak:8080` URL on the docker-compose network (in prod both are the
 public `https://…` URLs). `/healthz` and the metadata endpoints stay public.
+
+### Scope enforcement
+
+A token that verifies is not automatically authorized. After `jwtVerify` the sidecar requires every scope
+in `MCP_OAUTH_REQUIRED_SCOPES` (defaulting to whatever `MCP_OAUTH_SCOPES` advertises) to be present in the
+token's space-delimited `scope` claim. A verified but under-scoped token gets:
+
+```
+HTTP/1.1 403 Forbidden
+WWW-Authenticate: Bearer error="insufficient_scope",
+  error_description="The access token is missing the required scope(s): pensieve:read",
+  scope="pensieve:read", resource_metadata="https://…/.well-known/oauth-protected-resource/mcp"
+```
+
+**403 rather than 401**, per RFC 6750 §3.1: the credential is genuine, so re-presenting it would fail
+identically, and a client that reads 401 as "start the OAuth flow" would loop. The `scope` parameter tells
+the client what to ask for next; `resource_metadata` still lets it rediscover the authorization server.
+
+Why this is not redundant with the audience check: Keycloak does not honor the RFC 8707 `resource`
+parameter, so the `/mcp` audience is attached by a **mapper on the `pensieve:read` client scope**. In the
+production realm that scope is deliberately not a realm default, so audience and scope now travel together
+and are checked together. Set `MCP_OAUTH_REQUIRED_SCOPES=""` to disable the check — the escape hatch when a
+connector cannot be granted the scope in Keycloak — which leaves audience as the only gate.
 
 ## Tools
 
@@ -63,6 +87,7 @@ everything.
 | `MCP_OAUTH_JWKS_URI` | — | JWKS URL for verification (compose: `http://keycloak:8080/...`) |
 | `MCP_OAUTH_AUDIENCE` | — | Expected token `aud` (the `/mcp` resource URL) |
 | `MCP_OAUTH_SCOPES` | `pensieve:read` | Scopes advertised in protected-resource metadata |
+| `MCP_OAUTH_REQUIRED_SCOPES` | *(= `MCP_OAUTH_SCOPES`)* | Scopes a verified token must carry to reach `POST /mcp`. Set to `""` to require none |
 | `MCP_HEARTBEAT_RETRIES` | `30` | `auto` mode: startup heartbeat probe attempts before giving up |
 | `MCP_HEARTBEAT_RETRY_DELAY_MS` | `2000` | Delay between heartbeat probe attempts |
 

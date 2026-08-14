@@ -26,6 +26,13 @@ export interface Config {
   oauthAudience?: string;
   /** Scopes advertised in protected-resource metadata. */
   oauthScopes: string[];
+  /**
+   * Scopes a verified token must actually carry to reach POST /mcp. Defaults to {@link oauthScopes} — what
+   * the resource advertises is what it requires. Set MCP_OAUTH_REQUIRED_SCOPES to an empty string to check
+   * nothing (the pre-enforcement behavior), which is the escape hatch if a connector cannot be granted the
+   * scope in Keycloak and the audience check alone has to do.
+   */
+  oauthRequiredScopes: string[];
   /** In "auto" mode, how many times to probe the backend heartbeat at startup before giving up. */
   heartbeatRetries: number;
   /** Delay between heartbeat probe attempts, in milliseconds. */
@@ -55,6 +62,11 @@ export function resolveEnforcement(
   return oauthConfigured ? { enforce: true, failClosed: true } : { enforce: false, failClosed: false };
 }
 
+/** Parse a comma- or whitespace-delimited scope list. An empty/blank string yields no scopes. */
+function splitScopes(raw: string): string[] {
+  return raw.split(/[,\s]+/).filter(Boolean);
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const apiBaseUrl = (env.API_BASE_URL ?? "http://localhost:8080/v1").replace(/\/+$/, "");
   const port = Number.parseInt(env.PORT ?? "3000", 10);
@@ -72,6 +84,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`Invalid MCP_AUTH_MODE: ${env.MCP_AUTH_MODE} (expected auto|required|disabled)`);
   }
 
+  const oauthScopes = splitScopes(env.MCP_OAUTH_SCOPES ?? "pensieve:read");
+  // `?? oauthScopes` and not `|| oauthScopes`: an explicitly EMPTY MCP_OAUTH_REQUIRED_SCOPES must mean
+  // "require nothing", which `||` would silently turn back into the default.
+  const oauthRequiredScopes =
+    env.MCP_OAUTH_REQUIRED_SCOPES === undefined
+      ? oauthScopes
+      : splitScopes(env.MCP_OAUTH_REQUIRED_SCOPES);
+
   return {
     apiBaseUrl,
     port,
@@ -82,7 +102,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     oauthIssuer: env.MCP_OAUTH_ISSUER || undefined,
     oauthJwksUri: env.MCP_OAUTH_JWKS_URI || undefined,
     oauthAudience: env.MCP_OAUTH_AUDIENCE || undefined,
-    oauthScopes: (env.MCP_OAUTH_SCOPES ?? "pensieve:read").split(/[,\s]+/).filter(Boolean),
+    oauthScopes,
+    oauthRequiredScopes,
     heartbeatRetries: Math.max(1, Number.parseInt(env.MCP_HEARTBEAT_RETRIES ?? "30", 10) || 30),
     heartbeatRetryDelayMs: Math.max(0, Number.parseInt(env.MCP_HEARTBEAT_RETRY_DELAY_MS ?? "2000", 10) || 2000),
   };

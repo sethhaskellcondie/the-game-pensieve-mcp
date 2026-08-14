@@ -47,6 +47,7 @@ async function main(): Promise<void> {
             jwksUri: cfg.oauthJwksUri!,
           })
         : undefined,
+      requiredScopes: cfg.oauthRequiredScopes,
       metadata: protectedResourceMetadata({
         resource: cfg.oauthAudience!,
         issuer: cfg.oauthIssuer!,
@@ -61,6 +62,14 @@ async function main(): Promise<void> {
       (oauthConfigured ? "" : " (no OAuth config)") +
       (enforce ? ` — issuer=${cfg.oauthIssuer} audience=${cfg.oauthAudience}` : ""),
   );
+  if (enforce) {
+    console.log(
+      cfg.oauthRequiredScopes.length
+        ? `[pensieve-mcp] required scopes: ${cfg.oauthRequiredScopes.join(" ")}`
+        : "[pensieve-mcp] WARNING: no required scopes (MCP_OAUTH_REQUIRED_SCOPES is empty) — any token " +
+            "carrying the right audience reaches /mcp.",
+    );
+  }
   if (secureMode && !enforce) {
     console.warn(
       `[pensieve-mcp] WARNING: backend secureMode=true but OAuth enforcement is off (MCP_AUTH_MODE=${cfg.authMode}). ` +

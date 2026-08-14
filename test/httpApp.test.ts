@@ -24,11 +24,19 @@ function fakeApi(): PensieveApi {
 let privateKey: KeyLike;
 let secured: Server;
 let open: Server;
+let unscoped: Server;
 let securedUrl: string;
 let openUrl: string;
+let unscopedUrl: string;
 
+/** A token that is valid in every way, including carrying the required `pensieve:read` scope. */
 async function signValid(): Promise<string> {
-  return new SignJWT({ scope: "pensieve:read" })
+  return signWithScope("pensieve:read");
+}
+
+/** Same token, with the `scope` claim replaced (or omitted entirely when `scope` is undefined). */
+async function signWithScope(scope: string | undefined): Promise<string> {
+  return new SignJWT(scope === undefined ? {} : { scope })
     .setProtectedHeader({ alg: "RS256", kid: "k" })
     .setIssuedAt()
     .setSubject("u")
@@ -58,19 +66,30 @@ beforeAll(async () => {
   const verifier = createVerifier({ issuer: ISSUER, audience: AUDIENCE }, createLocalJWKSet({ keys: [jwk] }));
   const metadata = protectedResourceMetadata({ resource: AUDIENCE, issuer: ISSUER, scopes: ["pensieve:read"] });
 
-  const securedAuth: AuthState = { enforce: true, verifier, metadata, metadataUrl: METADATA_URL };
+  const securedAuth: AuthState = {
+    enforce: true,
+    verifier,
+    requiredScopes: ["pensieve:read"],
+    metadata,
+    metadataUrl: METADATA_URL,
+  };
   const openAuth: AuthState = { enforce: false, metadata, metadataUrl: METADATA_URL };
+  // Enforces the bearer but requires no scopes — MCP_OAUTH_REQUIRED_SCOPES="" , the documented escape hatch.
+  const unscopedAuth: AuthState = { enforce: true, verifier, requiredScopes: [], metadata, metadataUrl: METADATA_URL };
 
   secured = createHttpApp({ makeApi: () => fakeApi(), serverInfo: { name: "t", version: "0" }, auth: securedAuth }).listen(0);
   open = createHttpApp({ makeApi: () => fakeApi(), serverInfo: { name: "t", version: "0" }, auth: openAuth }).listen(0);
+  unscoped = createHttpApp({ makeApi: () => fakeApi(), serverInfo: { name: "t", version: "0" }, auth: unscopedAuth }).listen(0);
   securedUrl = `http://127.0.0.1:${(secured.address() as AddressInfo).port}`;
   openUrl = `http://127.0.0.1:${(open.address() as AddressInfo).port}`;
+  unscopedUrl = `http://127.0.0.1:${(unscoped.address() as AddressInfo).port}`;
 });
 
 afterAll(async () => {
   await Promise.all([
     new Promise<void>((r) => secured.close(() => r())),
     new Promise<void>((r) => open.close(() => r())),
+    new Promise<void>((r) => unscoped.close(() => r())),
   ]);
 });
 
@@ -112,6 +131,41 @@ describe("enforced /mcp", () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain("search_systems");
+  });
+});
+
+describe("scope enforcement on /mcp", () => {
+  // The audience is attached by a mapper on the pensieve:read client scope, so before the scope check a
+  // token from any client that happened to hold that scope-derived audience got in. These pin the check.
+  it("refuses a verified token that lacks the required scope with 403 insufficient_scope", async () => {
+    const res = await rpc(securedUrl, TOOLS_LIST, await signWithScope("openid email"));
+    expect(res.status).toBe(403);
+    const wwwAuth = res.headers.get("www-authenticate") ?? "";
+    expect(wwwAuth).toContain('error="insufficient_scope"');
+    expect(wwwAuth).toContain('scope="pensieve:read"');
+    // The client still needs to be able to rediscover the authorization server to ask for the scope.
+    expect(wwwAuth).toContain(`resource_metadata="${METADATA_URL}"`);
+  });
+
+  it("refuses a verified token with no scope claim at all", async () => {
+    const res = await rpc(securedUrl, TOOLS_LIST, await signWithScope(undefined));
+    expect(res.status).toBe(403);
+    expect(res.headers.get("www-authenticate") ?? "").toContain('error="insufficient_scope"');
+  });
+
+  it("accepts the required scope alongside others", async () => {
+    const res = await rpc(securedUrl, TOOLS_LIST, await signWithScope("openid pensieve:read email"));
+    expect(res.status).toBe(200);
+  });
+
+  it("lets an under-scoped token through when no scopes are required", async () => {
+    const res = await rpc(unscopedUrl, TOOLS_LIST, await signWithScope("openid"));
+    expect(res.status).toBe(200);
+  });
+
+  it("still rejects an unverifiable token when no scopes are required", async () => {
+    const res = await rpc(unscopedUrl, TOOLS_LIST, "garbage.token.here");
+    expect(res.status).toBe(401);
   });
 });
 

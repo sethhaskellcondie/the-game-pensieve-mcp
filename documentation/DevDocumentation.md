@@ -74,6 +74,36 @@ Note the issuer/JWKS split: `iss` is validated against the canonical host-facing
 keys are fetched from `MCP_OAUTH_JWKS_URI`, which inside docker-compose is the internal
 `http://keycloak:8080/...` URL. In prod both are the public `https://` URLs.
 
+## What a bearer has to satisfy
+
+Four independent gates, in the order `httpApp.ts` applies them. Each fails differently on purpose:
+
+| Gate | Where | Failure |
+|---|---|---|
+| A bearer is present | `extractBearer` | `401` + `WWW-Authenticate: Bearer resource_metadata="…"` |
+| Signature, `iss`, `aud`, expiry, `alg` ∈ `{RS256}` | `createVerifier` (`auth.ts`) → `jose.jwtVerify` | `401 error="invalid_token"` |
+| Every scope in `MCP_OAUTH_REQUIRED_SCOPES` | `missingScopes` → `sendInsufficientScope` | `403 error="insufficient_scope", scope="…"` |
+| Ownership / capability | the backend, independently | whatever the API returns |
+
+Three things about this are worth knowing rather than rediscovering:
+
+- **`algorithms: ["RS256"]` is pinned explicitly** even though `jose` already refuses `alg: none` and will
+  not verify an HMAC token against an RSA JWK. It pins a property that holds today so that changing it
+  later is a deliberate edit in one place, not a silent widening.
+- **Scope enforcement is not redundant with the audience check.** Keycloak does not honor the RFC 8707
+  `resource` parameter, so the `/mcp` audience is attached by a mapper on the `pensieve:read` client
+  scope. While that scope was a realm *default*, every token from every client in the realm carried the
+  audience and sailed through here — segmentation was nil. The production realm no longer grants it by
+  default, and this check is the other half of that change.
+- **The scope failure is 403, not 401** (RFC 6750 §3.1). 401 means "authenticate", and re-presenting the
+  same valid credential would fail identically — a client that reads 401 as "start the OAuth dance" would
+  loop forever. The 403 carries `scope="…"` so the client knows what to request next.
+
+`MCP_OAUTH_REQUIRED_SCOPES` defaults to `MCP_OAUTH_SCOPES` — what the resource advertises is what it
+requires. It is read with `??`, not `||`, so an explicitly **empty** value means "require nothing" rather
+than silently falling back to the default; that is the escape hatch for a connector that cannot be granted
+the scope, and `index.ts` logs a warning at startup when it is in force.
+
 ## The tool surface
 
 All tools are defined in `tools.ts` and registered per-request. The design rules:

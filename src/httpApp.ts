@@ -3,7 +3,9 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { PensieveApi } from "./apiClient.js";
 import {
   extractBearer,
+  missingScopes,
   sendAuthChallenge,
+  sendInsufficientScope,
   type ProtectedResourceMetadata,
   type TokenVerifier,
 } from "./auth.js";
@@ -14,6 +16,11 @@ export interface AuthState {
   enforce: boolean;
   /** Verifies the bearer's signature/issuer/audience. Required when enforce is true. */
   verifier?: TokenVerifier;
+  /**
+   * Scopes a verified token must carry to reach POST /mcp. Empty (or absent) checks nothing, which is the
+   * pre-existing behavior and the escape hatch for a connector that cannot be granted the scope.
+   */
+  requiredScopes?: string[];
   /** Served at the protected-resource well-known endpoints (if present). */
   metadata?: ProtectedResourceMetadata;
   /** Absolute URL of the metadata document, referenced in WWW-Authenticate. */
@@ -70,13 +77,20 @@ export function createHttpApp(deps: HttpAppDeps): Express {
         sendAuthChallenge(res, auth.metadataUrl);
         return;
       }
+      let payload;
       try {
-        await auth.verifier!.verify(token);
+        payload = await auth.verifier!.verify(token);
       } catch (err) {
         sendAuthChallenge(res, auth.metadataUrl, {
           code: "invalid_token",
           description: err instanceof Error ? err.message : "Token verification failed",
         });
+        return;
+      }
+      const required = auth.requiredScopes ?? [];
+      const missing = required.length ? missingScopes(payload, required) : [];
+      if (missing.length) {
+        sendInsufficientScope(res, auth.metadataUrl, required, missing);
         return;
       }
       bearer = token;

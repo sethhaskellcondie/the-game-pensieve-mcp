@@ -7,6 +7,14 @@ export interface TokenVerifier {
 }
 
 /**
+ * The signature algorithms a token may be signed with. Keycloak signs realm tokens with RS256, so this is
+ * an exact allowlist rather than a preference. jose already refuses `alg: none` and will not verify an HMAC
+ * token against an RSA JWK, so this pins a property that holds today instead of fixing a live hole — but it
+ * pins it *explicitly*, so a future key-type change is a deliberate edit here rather than a silent widening.
+ */
+const ALLOWED_ALGORITHMS = ["RS256"];
+
+/**
  * Build a verifier around a jose key resolver. Prod passes a remote JWKS
  * (see {@link createRemoteVerifier}); tests pass a local JWKS.
  */
@@ -19,6 +27,7 @@ export function createVerifier(
       const { payload } = await jwtVerify(token, keys, {
         issuer: cfg.issuer,
         audience: cfg.audience,
+        algorithms: ALLOWED_ALGORITHMS,
       });
       return payload;
     },
@@ -56,6 +65,29 @@ export function protectedResourceMetadata(cfg: {
   };
 }
 
+/**
+ * The scopes a verified token carries, from the space-delimited OAuth 2.0 `scope` claim. A token with no
+ * `scope` claim (or a non-string one) holds no scopes — the caller decides whether that is fatal.
+ */
+export function tokenScopes(payload: JWTPayload): string[] {
+  const raw = payload.scope;
+  return typeof raw === "string" ? raw.split(/\s+/).filter(Boolean) : [];
+}
+
+/**
+ * Which of {@code required} the token does not carry, in the order they were required (empty = satisfied).
+ *
+ * <p>Audience alone is not sufficient authorization. The `/mcp` audience is attached by a mapper on the
+ * `pensieve:read` client scope, so before that scope was taken off the realm defaults *every* token from
+ * *every* client in the realm carried the audience and passed verification here. The realm no longer grants
+ * it by default, and this is the second half of that change: the scope is now checked, not merely advertised
+ * in the protected-resource metadata.
+ */
+export function missingScopes(payload: JWTPayload, required: string[]): string[] {
+  const held = new Set(tokenScopes(payload));
+  return required.filter((scope) => !held.has(scope));
+}
+
 /** Extract a bearer token from the Authorization header, or null. */
 export function extractBearer(header: string | undefined): string | null {
   if (!header) return null;
@@ -82,6 +114,36 @@ export function sendAuthChallenge(
   res.status(401).json({
     jsonrpc: "2.0",
     error: { code: -32001, message: err?.description ?? "Authentication required" },
+    id: null,
+  });
+}
+
+/**
+ * Send an RFC 6750 §3.1 `insufficient_scope` refusal: the bearer verified — signature, issuer, audience and
+ * expiry are all good — but it does not carry the scopes this resource requires.
+ *
+ * <p>**403, not 401, and deliberately so.** 401 means "authenticate"; re-presenting the same credential
+ * would fail identically, and an MCP client that reads 401 as "start the OAuth dance" would loop. 403 with
+ * the `scope` parameter tells the client exactly which scopes to request on its next authorization, and
+ * `resource_metadata` still points at the RFC 9728 document so it can rediscover the authorization server.
+ */
+export function sendInsufficientScope(
+  res: Response,
+  metadataUrl: string | undefined,
+  required: string[],
+  missing: string[],
+): void {
+  const description = `The access token is missing the required scope(s): ${missing.join(" ")}`;
+  const params = [
+    'error="insufficient_scope"',
+    `error_description="${sanitize(description)}"`,
+    `scope="${sanitize(required.join(" "))}"`,
+  ];
+  if (metadataUrl) params.push(`resource_metadata="${metadataUrl}"`);
+  res.set("WWW-Authenticate", `Bearer ${params.join(", ")}`);
+  res.status(403).json({
+    jsonrpc: "2.0",
+    error: { code: -32001, message: description },
     id: null,
   });
 }
